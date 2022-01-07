@@ -1,0 +1,82 @@
+{
+  "name": "@seed/process",
+  "version": "1.0.1",
+  "description": "SEED - Processing engine",
+  "tags": [
+    "The Russian National Electronic library",
+    "The Russian National Digital library",
+    "The Russian National Library",
+    "Knowledge space",
+    "data integration",
+    "SEED",
+    "NEL-SEED",
+    "NDL-SEED",
+    "NEB",
+    "NDL",
+    "NEL",
+    "rusneb",
+    "catalog",
+    "bibliography",
+    "metadata",
+    "warehouse",
+    "mdm",
+    "graph",
+    "linked data",
+    "opds2"
+  ],
+  "author": {
+    "name": "Ilya Kutukov",
+    "email": "i@leninka.ru",
+    "url": "https://github.com/mrjj/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ndlrf-rnd/seed-process"
+  },
+  "entry": {
+    "index": "src/index.js"
+  },
+  "main": "lib/index.js",
+  "module": "lib/index.js",
+  "man": "README.md",
+  "dependencies": {
+    "@seed/format-marc": "git://github.com/ndlrf-rnd/seed-format-marc.git#v1.0.7",
+    "argparse": "2.0.1",
+    "jsonata": "^1.8.5",
+    "level-inc": "0.1.1",
+    "levelup": "5.1.1",
+    "lodash.camelcase": "4.3.0",
+    "lodash.capitalize": "4.2.1",
+    "lodash.defaults": "4.2.0",
+    "lodash.flattendeep": "^4.4.0",
+    "lodash.get": "4.4.2",
+    "lodash.isdate": "4.0.1",
+    "lodash.mapvalues": "4.6.0",
+    "lodash.merge": "4.6.2",
+    "lodash.omit": "^4.5.0",
+    "lodash.pick": "4.4.0",
+    "lodash.pickby": "4.6.0",
+    "lodash.set": "4.3.2",
+    "lodash.setwith": "4.3.2",
+    "lodash.snakecase": "4.1.1",
+    "traverse": "^0.6.6"
+  },
+  "devDependencies": {
+    "eslint": "8.6.0",
+    "eslint-config-airbnb-base": "15.0.0",
+    "eslint-plugin-import": "2.25.3",
+    "eslint-plugin-jest": "25.3.3",
+    "jest": "27.4.5"
+  },
+  "files": [
+    "src/"
+  ],
+  "scripts": {
+    "ci": "npm run test ; npm run lint",
+    "lint": "eslint ./src",
+    "lint:fix": "eslint --fix ./src",
+    "test": "jest ./src",
+    "test:coverage": "jest ./src --coverage"
+  },
+  "license": "Apache-2.0"
+}
