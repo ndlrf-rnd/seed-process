@@ -1,13 +1,11 @@
-const mapValues = require('lodash.mapvalues');
-const setWith = require('lodash.setwith');
-const pick = require('lodash.pick');
-const merge = require('lodash.merge');
-const traverse = require('traverse');
-const pickBy = require('lodash.pickby');
-const omit = require('lodash.omit');
-const set = require('lodash.set');
-const get = require('lodash.get');
 const defaults = require('lodash.defaults');
+const get = require('lodash.get');
+const mapValues = require('lodash.mapvalues');
+const omit = require('lodash.omit');
+const pick = require('lodash.pick');
+const pickBy = require('lodash.pickby');
+const set = require('lodash.set');
+const traverse = require('traverse');
 const { isObject, isEmpty } = require('./types');
 
 const defaultTestFn = (el) => !isEmpty(el);
@@ -113,8 +111,6 @@ module.exports = {
   pathsToStr,
   pick,
   pickBy,
-  merge,
   removeEmpty,
   set,
-  setWith,
 };

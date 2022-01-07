@@ -1,6 +1,6 @@
 {
   "name": "@seed/process",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "SEED - Processing engine",
   "tags": [
     "The Russian National Electronic library",
@@ -42,23 +42,15 @@
   "dependencies": {
     "@seed/format-marc": "git://github.com/ndlrf-rnd/seed-format-marc.git#v1.0.7",
     "argparse": "2.0.1",
-    "jsonata": "^1.8.5",
-    "level-inc": "0.1.1",
-    "levelup": "5.1.1",
-    "lodash.camelcase": "4.3.0",
-    "lodash.capitalize": "4.2.1",
     "lodash.defaults": "4.2.0",
     "lodash.flattendeep": "^4.4.0",
     "lodash.get": "4.4.2",
     "lodash.isdate": "4.0.1",
     "lodash.mapvalues": "4.6.0",
-    "lodash.merge": "4.6.2",
     "lodash.omit": "^4.5.0",
     "lodash.pick": "4.4.0",
     "lodash.pickby": "4.6.0",
     "lodash.set": "4.3.2",
-    "lodash.setwith": "4.3.2",
-    "lodash.snakecase": "4.1.1",
     "traverse": "^0.6.6"
   },
   "devDependencies": {
@@ -68,6 +60,7 @@
     "eslint-plugin-jest": "25.3.3",
     "jest": "27.4.5"
   },
+  "node": ">=10.0.0",
   "files": [
     "src/"
   ],
