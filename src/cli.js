@@ -1,9 +1,34 @@
 const argparse = require('argparse');
-const { DEFAULT_JOBS, VERSION } = require('./constants');
+const formats = require('./formats');
+const {
+  DEFAULT_JOBS,
+  VERSION,
+} = require('./constants');
 
+class NormalizeMediaTypeAndSave extends argparse.Action {
+  call(parser, namespace, value /* option_string = undefined */) {
+    namespace[this.dest] = value.replace(/^([^/]\/)?/uig, 'application/');
+  }
+}
+
+/**
+ *
+ * @param {String[]} args
+ *
+ * @returns {Object[{
+ *   command: "stats"|"convert", // Operation to execute
+ *   encoding: String [o], // Optional input encoding, will override default import format encoding,
+ *
+ *   from: String ['application/marc'], // Input serialization format media-type
+ *   to: String ['application/marc'],   // Output serialization format media-type
+ *   dialect: String [o]                // Optional out format dialect if format support one
+ *
+ *   jobs: Number [0],
+ * }]}
+ */
 const parseArgs = (args) => {
+  const formatChoices = Object.keys(formats).sort();
   const parser = new argparse.ArgumentParser({
-    // version: VERSION,
     description: 'Process bibliographic records',
   });
 
@@ -22,41 +47,77 @@ const parseArgs = (args) => {
     },
   );
 
+  parser.add_argument(
+    '-e',
+    '--encoding',
+    {
+      help: 'Input encoding for formats that might be consumed as text stream',
+      type: 'str',
+    },
+  );
+
+  parser.add_argument(
+    '-i',
+    '--input',
+    {
+      help: 'Input path or URI, dont define this param or use - symbol for reading from stdin until stdin pipe is closed',
+      type: 'str',
+      default: '-',
+    },
+  );
+  parser.add_argument(
+    '-l',
+    '--limit',
+    {
+      help: 'Limit maximum count of records to process',
+      type: 'int',
+    },
+  );
+  parser.add_argument(
+    '-I',
+    '--input-type',
+    {
+      help: 'Input format IANA (or domestic) Media type that may be followed by expected format dialect definition',
+      type: 'str',
+      choices: formatChoices,
+      dest: 'inputMediaType',
+      action: NormalizeMediaTypeAndSave,
+    },
+  );
+
   const subParsers = parser.add_subparsers({
     title: 'Command',
+    description: 'Processing command',
     dest: 'command',
   });
 
+  // Stats
   const statsParser = subParsers.add_parser(
     'stats',
     {
       help: 'Generate record fields stat report',
     },
   );
-  statsParser.add_argument('path', {
-    help: 'Input file path',
-  });
 
   statsParser.add_argument(
-    '-e',
-    '--encoding',
+    '-o',
+    '--output',
     {
-      help: 'Input encoding',
+      help: 'Output path, don\'t specify when using stdout as output or expecting automatic creation of output folder (e.g. in case of detailed stats or slicing)',
       type: 'str',
-      default: 'utf-8',
     },
   );
-
   statsParser.add_argument(
-    '-t',
-    '--media-type',
+    '-O',
+    '--output-type',
     {
-      help: 'Media type',
+      help: 'Output format IANA (or domestic) Media type that may be followed by format dialect definition',
       type: 'str',
-      default: 'application/marc',
+      default: formatChoices,
+      dest: 'outputMediaType',
+      action: NormalizeMediaTypeAndSave,
     },
   );
-
   return parser.parse_args(args);
 };
 

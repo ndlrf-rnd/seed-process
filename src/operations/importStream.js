@@ -1,31 +1,26 @@
-const { kMaxLength } = require('buffer');
-const fs = require('fs');
-
-const omit = require('lodash.omit');
-
-const { formats } = require('../formats');
+const formats = require('../formats');
 
 const {
   error,
+  info,
   warn,
 } = require('../utils/log');
 
 const {
   lengthInBytes,
   escapeUnprintable,
-
 } = require('../utils/text');
 
 const { isEmpty } = require('../utils/types');
-const { mergeObjectsReducer } = require('../utils/objects');
+const { flattenDeep } = require('../utils/arrays');
+const { cpMap } = require('../utils/promise');
 
 const {
   DEFAULT_JOBS,
-  DEFAULT_MEDIA_TYPE,
-  MAX_POOL_PER_WORKER_SIZE_BYTES,
+  MAX_WORKER_DATA_SIZE_BYTES,
 } = require('../constants');
 
-const { statChunk } = require('../statCounter');
+const { StatCounter } = require('../statCounter');
 
 const chunkBuffer = (chunk, startMarker, endMarker, encoding, limit) => {
   let chunkOffset = 0;
@@ -77,21 +72,31 @@ const chunkBuffer = (chunk, startMarker, endMarker, encoding, limit) => {
   return [dataRecords, chunk.slice(chunkOffset)];
 };
 
+/**
+ *
+ * @param rs
+ * @param {Object[string:string]} config
+ * @param {function} onProgress
+ * @returns {Promise<unknown>}
+ */
 const importStream = (rs, config, onProgress) => (
   new Promise(
     // eslint-disable-next-line no-async-promise-executor
     async (resolve, reject) => {
+      const statCounter = new StatCounter();
+      const startTsSec = (new Date()).getTime() / 1000.0;
       try {
-        const maxPoolSize = MAX_POOL_PER_WORKER_SIZE_BYTES * (config.jobs || DEFAULT_JOBS);
-        const bytesEstimated = config.bytesEstimated || (
-          fs.existsSync(rs.path) ? fs.statSync(rs.path).size : null
-        );
+        const mediaType = config.inputMediaType;
+        const format = formats[mediaType];
+        if (!format) {
+          reject(new Error(`Format not found for media-type: ${mediaType}`));
+        }
+        const maxPoolSize = MAX_WORKER_DATA_SIZE_BYTES * (config.jobs || DEFAULT_JOBS);
 
-        const stats = [];
+        let bytesCompleted = 0;
         let isProcessingCompleted = false;
 
         let pool = [];
-        let bytesCompleted = 0;
 
         let poolLen = 0;
         let documentsCompleted = 0;
@@ -100,45 +105,45 @@ const importStream = (rs, config, onProgress) => (
         let batchSizeBytes = 0;
         // eslint-disable-next-line no-unused-vars
         let batchSizeDocuments = 0;
-        let header = null;
-        const mediaType = config.mediaType || config.media_type || DEFAULT_MEDIA_TYPE;
-        const format = formats[mediaType];
 
-        if (!format) {
-          warn(`Format not found for media-type: ${mediaType}`);
-        }
+        let header = null;
         const encoding = (format && format.encoding) || config.encoding;
+
         const onCompleteChunk = async (chunk, isLast = false) => {
           let recordBuffers;
           let tailBuffer;
-          if ((!isEmpty(format.endHeaderMarker)) && (!header)) {
+          if ((!isEmpty(format.serial[mediaType].endHeaderMarker)) && (!header)) {
             const [wrappedHeaderBuffer, headlessChunk] = chunkBuffer(
               chunk,
-              format.startHeaderMarker,
-              format.endHeaderMarker,
+              format.serial[mediaType].startHeaderMarker,
+              format.serial[mediaType].endHeaderMarker,
               encoding,
               1,
             );
             if (wrappedHeaderBuffer.length === 1) {
-              header = (typeof format.processHeader === 'function')
-                ? await format.processHeader(wrappedHeaderBuffer[0], config)
+              header = (typeof format.serial[mediaType].processHeader === 'function')
+                ? await format.serial[mediaType].processHeader(wrappedHeaderBuffer[0], config)
                 : wrappedHeaderBuffer[0];
-              warn(`[LRO:WORKER:${process.pid}:importStream] Detected TSV header (${lengthInBytes(wrappedHeaderBuffer[0])} bytes, EndOfHeader symbol: "${escapeUnprintable(format.endHeaderMarker)}", decoded string: [ ${header.join(' | ')} ]`);
+              info(`Detected TSV header (${lengthInBytes(wrappedHeaderBuffer[0])} bytes, EndOfHeader symbol: "${escapeUnprintable(format.serial[mediaType].endHeaderMarker)}", decoded string: [ ${header.join(' | ')} ]`);
             } else {
-              warn(`[LRO:WORKER:${process.pid}:importStream] WARNING: Unexpected header buffers count: ${wrappedHeaderBuffer.length}. No header will be used.`);
+              warn(`WARNING: Unexpected header buffers count: ${wrappedHeaderBuffer.length}. No header will be used.`);
             }
             chunk = headlessChunk;
           }
 
           // Chunk is outside possible header
           let chunkingResult;
-          if ((!format.startMarker) && (!format.endMarker) && isLast) {
+          if ((
+            !format.serial[mediaType].startMarker
+          ) && (
+            !format.serial[mediaType].endMarker
+          ) && isLast) {
             chunkingResult = [[chunk], Buffer.from([])];
           } else {
             chunkingResult = chunkBuffer(
               chunk,
-              format.startMarker,
-              format.endMarker,
+              format.serial[mediaType].startMarker,
+              format.serial[mediaType].endMarker,
               encoding,
               config.limit,
             );
@@ -151,34 +156,36 @@ const importStream = (rs, config, onProgress) => (
 
           batchSizeDocuments = recordBuffers.length;
           documentsCompleted += recordBuffers.length;
-          let result = [];
-          // if (recordBuffers.length > 0) {
           try {
-            result = await statChunk(recordBuffers);
+            const records = flattenDeep(await cpMap(recordBuffers, format.serial[mediaType].from));
+            records.forEach((rec) => statCounter.add(rec));
+            // statCounter.recordsCount += recordBuffers.length;
           } catch (e) {
-            error('ERROR:', e);
+            reject(e);
           }
-          error('result', result);
-          // }
+          /*
           const batchExecutionReport = {
             bytes_completed: bytesCompleted,
             bytes_estimated: bytesEstimated,
             documents_completed: documentsCompleted,
-            ...((result || []).reduce(
-              (a, o) => mergeObjectsReducer(a, o),
-              {},
-            )),
+            // ...((result || []).reduce(
+            //   (a, o) => mergeObjectsReducer(a, o),
+            //   {},
+            // )),
           };
+          */
           if (typeof (onProgress) === 'function') {
-            await onProgress(batchExecutionReport);
+            onProgress({
+              records: statCounter.recordsTotal,
+              bytes: bytesCompleted,
+              elapsedSec: (new Date()).getTime() / 1000.0 - startTsSec,
+            });
           }
-          stats.push(batchExecutionReport);
 
           // Finalize
           batchSizeBytes = 0;
           return tailBuffer;
         };
-
         const onEnd = async () => {
           try {
             // Final chunk
@@ -189,10 +196,18 @@ const importStream = (rs, config, onProgress) => (
             }
             if (!isProcessingCompleted) {
               isProcessingCompleted = true;
-              resolve(omit(
-                stats.reduce((a, o) => mergeObjectsReducer(a, o, false), {}),
-                ['bytes_completed', 'bytes_estimated', 'documents_estimated', 'documents_completed'],
-              ));
+              // const res = statCounter.toJSON();
+              // info(`Variant fields: ${Object.keys(res).length}`);
+              resolve(statCounter);
+              // omit(
+              //   stats.reduce((a, o) => mergeObjectsReducer(a, o, false), {}),
+              //   [
+              //    'bytes_completed',
+              //    'bytes_estimated',
+              //    'documents_estimated',
+              //    'documents_completed'
+              //   ],
+              // )
               // await refreshDbStats();
             }
           } catch (e) {
@@ -236,39 +251,18 @@ const importStream = (rs, config, onProgress) => (
           error(err);
           reject(err);
         });
-        const fileSize = rs.path ? fs.statSync(rs.path).size : null;
-        if (
-          (!format) || (
-            (
-              !(
-                format.endHeaderMarker
-                || format.startHeaderMarker
-                || format.startMarker
-                || format.endMarker
-              )
-            ) && (
-              typeof fileSize === 'number'
-            ) && (
-              fileSize < kMaxLength
-            )
-          )
-        ) {
-          config.sync = true;
-          rs.on('data', (data) => pool.push(data));
-        } else {
-          rs.on('data', onData);
-        }
+        rs.on('data', onData);
         rs.on('end', onEnd);
-      } catch (e) {
+      } catch (err) {
+        error('ERROR:', err);
         if (rs) {
           try {
             rs.end();
-          } catch (err) {
-            warn('WARN: Can\'t close read stream properly', err);
+          } catch (finErr) {
+            error('ERROR: Can\'t close read stream properly:', finErr);
           }
         }
-        // await refreshDbStats();
-        reject(e);
+        reject(err);
       }
     },
   )

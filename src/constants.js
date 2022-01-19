@@ -31,9 +31,9 @@ const DEFAULT_DOWNLOAD_HEADERS = {
   'Transfer-Encoding': 'chunked', // ! Important
 };
 
-const MAX_POOL_PER_WORKER_SIZE_BYTES = 1024 * 1024;
+const MAX_WORKER_DATA_SIZE_BYTES = 4 * 1024 * 1024;
 
-const DEFAULT_MEDIA_TYPE = 'text/text';
+const DEFAULT_MEDIA_TYPE = 'application/text';
 const MAX_URL_LENGTH = 8192;
 
 const REGISTERED_FORMATS = [
@@ -47,7 +47,7 @@ module.exports = {
   DEFAULT_MEDIA_TYPE,
   FETCH_PARAMS,
   FETCH_PROGRESS_PARAMS,
-  MAX_POOL_PER_WORKER_SIZE_BYTES,
+  MAX_WORKER_DATA_SIZE_BYTES,
   NAME,
   VERSION,
   MAX_URL_LENGTH,

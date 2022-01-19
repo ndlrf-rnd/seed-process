@@ -1,175 +1,170 @@
+const FpStr = require('fpstr');
 const {
-  MARC_JSON_SCHEMA,
-  MARC_FORKS,
-} = require('@seed/format-marc/src/constants');
-const { describeField } = require('@seed/format-marc');
-const { forceArray, flattenDeep } = require('./utils/arrays');
-const { cpMap } = require('./utils/promise');
-const { error } = require('./utils/log');
+  forceArray,
+  sortBy,
+  range,
+} = require('./utils/arrays');
 
-const toTsv = (rows) => rows.map((row) => row.join('\t')).join('\n');
-
-const MARC_STAT_TSV_COLUMNS = [
-  'record_type',
-  'field',
-  'occurrences',
-  'first_value_met',
-  'last_value_met',
-  'symbols_in_field_total',
-  'description',
-  'subfield_description',
-];
+const arr2tsv = (rows) => rows.map((row) => row.join('\t')).join('\n');
 
 const MARC_STAT_JSON_COLUMNS = [
-  'fieldsTotal',
-  'conditions',
-  'marc',
   'recordsTotal',
-  'recordsTotalInvalid',
-
-  'symbolsInFieldTotal',
-
-  'firstMetSamples',
-  'lastMetSamples',
-
-  'fieldsTotal',
-  'fieldsCount',
-  'symbolsTotal',
-
-  // 'accessLabels',
-  // 'fieldsRelationTotal',
-  // 'fieldsRelationCount',
+  'occurrencesTotal',
+  'valueSize',
+  'samples',
+  'fingerprints',
+  'containingRecords',
+  'occurrences',
 ];
+const sortByValue = (obj) => sortBy(
+  Object.keys(obj),
+  (k) => -obj[k],
+);
+
+const jsonToTsv = (jsonObj, topNValues = 3) => {
+  const header = [
+    'field',
+    'code',
+    'ind1',
+    'ind2',
+    'subfield',
+
+    'containingRecords',
+    'containingRecords_pt',
+
+    'occurrences',
+    'occurrences_pt',
+
+    ...(range(1, 2 + 1, 1)).map((rank) => `sample_${rank}`),
+
+    'topSize',
+    'meanSize',
+    'fingerprintVariants',
+    ...(range(1, topNValues + 1, 1)).map((rank) => `topFingerprint_${rank}`),
+  ];
+  const usedFields = Object.keys(jsonObj.valueSize).sort();
+  const rows = usedFields.map(
+    (marcField) => {
+      const firstLastSample = [
+        jsonObj.samples[marcField][0],
+        jsonObj.samples[marcField][1] || '',
+      ];
+
+      const inds = (marcField.split(' ')[1] || '  ');
+      return ([
+        // Field key part
+        marcField,
+        marcField.split(' ')[0],
+        inds[0],
+        inds[1],
+        marcField.replace(/^[^$]+/ui, ''),
+
+        // Records impact
+        jsonObj.containingRecords[marcField],
+        `${(
+          (100 * jsonObj.containingRecords[marcField]) / jsonObj.recordsTotal
+        ).toFixed(2)}%`,
+
+        // Data fields impact
+        jsonObj.occurrences[marcField],
+        `${(
+          (100 * jsonObj.occurrences[marcField]) / jsonObj.occurrencesTotal
+        ).toFixed(2)}%`,
+
+        // Samples
+        ...firstLastSample,
+
+        // Median
+        sortByValue(jsonObj.valueSize[marcField])[0],
+
+        // Mean
+        (
+          Object.keys(jsonObj.valueSize[marcField]).reduce(
+            (a, k) => (
+              a + parseInt(k, 10) * jsonObj.valueSize[marcField][k]
+            ),
+            0,
+          ) / jsonObj.occurrences[marcField]
+        ).toFixed(2),
+
+        Object.keys(jsonObj.fingerprints[marcField]).length,
+        ...sortByValue(jsonObj.fingerprints[marcField]).slice(0, topNValues),
+      ]);
+    },
+  );
+
+  return arr2tsv([header, ...rows]);
+};
 
 class StatCounter {
-  constructor(marc = MARC_FORKS.MARC21) {
-    this.fieldsTotal = 0;
-    this.marc = marc;
+  constructor() {
     this.recordsTotal = 0;
-    this.recordsTotalInvalid = 0;
-
-    this.symbolsInFieldTotal = {};
-
-    this.firstMetSamples = {};
-    this.lastMetSamples = {};
-
-    this.fieldsTotal = 0;
-    this.fieldsCount = {};
-    this.symbolsTotal = 0;
-
-    // this.accessLabels = {};
-    // this.fieldsRelationTotal = {};
-    // this.fieldsRelationCount = {};
+    this.occurrencesTotal = 0;
+    this.valueSize = {};
+    this.samples = {};
+    this.fingerprints = {};
+    this.containingRecords = {};
+    this.occurrences = {};
   }
 
   add(entity) {
-    if (entity.leader) {
-      // const gc = entity.leader["6"];
-      // const t = Object.keys(MARC21_RECORD_TYPE_GROUP_CODES).sort().filter(
-      //     (tg) =>
-      //       MARC21_RECORD_TYPE_GROUP_CODES[tg].indexOf(gc) !==
-      //       -1
-      //   )[0] || MARC_RECORD_FORMATS.UNKNOWN;
-      //
-      this.recordsTotal += 1;
-      Object.keys(entity).sort().forEach((tag) => {
-        const fieldItems = forceArray(entity[tag]);
-        // const accessLabels = [];
-        (fieldItems || []).forEach((fieldItem) => {
-          // Add defaults
-          this.firstMetSamples[tag] = this.firstMetSamples[tag] || {};
-          this.lastMetSamples[tag] = this.lastMetSamples[tag] || {};
-          this.symbolsInFieldTotal[tag] = this.symbolsInFieldTotal[tag] || {};
-          // this.fieldsRelationCount[t] = this.fieldsRelationCount[t] || {};
-          this.fieldsCount[tag] = this.fieldsCount[tag] || {};
-          let subfieldsToUse = null;
-          if (typeof fieldItem !== 'string' && !Array.isArray(fieldItem)) {
-            if (typeof fieldItem.value === 'undefined') {
-              subfieldsToUse = Object.keys(fieldItem).filter((k) =>
-                k.match(/^([a-z0-9]|[0-9]{2}|[0-9]{2}-[0-9]{2})$/giu));
-            } else {
-              Object.keys(fieldItem).sort();
-            }
-          }
-          if (subfieldsToUse) {
-            subfieldsToUse.forEach((code) => {
-              const f = `${tag}$${code}`;
-              if (fieldItem[code]) {
-                const subfieldItems = forceArray(fieldItem[code]);
-                subfieldItems.forEach((subfield) => {
-                  // if (f === '979$a') {
-                  //   accessLabels.push(subfield);
-                  // }
-                  // const consider = (this.conditions.length === 0)
-                  //   ? true
-                  //   : this.conditions.reduce(
-                  //     (a, condition) => (a || (!!subfield.match(condition))),
-                  //     false,
-                  //   );
-                  // if (consider) {
-                  this.fieldsTotal += 1;
-                  this.fieldsCount[tag][f] = (this.fieldsCount[tag][f] || 0) + 1;
-                  this.firstMetSamples[tag][f] = this.firstMetSamples[tag][f] || subfield;
-                  this.lastMetSamples[tag][f] = subfield;
-                  this.symbolsTotal += subfield.length || 0;
-                  this.symbolsInFieldTotal[tag][f] = (
-                    this.symbolsInFieldTotal[tag][f] || 0
-                  ) + subfield.length;
-                  this.fieldsRelationTotal = 0;
-                  // this.fieldsRelationCount[t][f] = 0;
-                  // }
-                });
-              }
-            });
-          } else {
-            const f = `${tag}`;
-            const fieldValue = typeof fieldItem === 'object' && fieldItem.value
-              ? fieldItem.value
-              : fieldItem;
-            const consider = this.conditions.length === 0
-              ? true
-              : this.conditions.reduce(
-                (a, condition) => a || !!fieldValue.match(condition),
-                false,
-              );
-            if (consider) {
-              this.fieldsTotal += 1;
-              this.fieldsCount[tag][f] = (this.fieldsCount[tag][f] || 0) + 1;
-              this.firstMetSamples[tag][f] = this.firstMetSamples[tag][f] || fieldValue;
-              this.symbolsTotal += fieldValue.length || 0;
-              this.symbolsInFieldTotal[tag][f] = (
-                this.symbolsInFieldTotal[tag][f] || 0
-              ) + fieldValue.length;
-              this.lastMetSamples[tag][f] = fieldValue;
-            }
-          }
-        });
+    this.recordsTotal += 1;
 
-        // if (accessLabels.filter((al) => !!(al || '').trim()).length > 0) {
-        //   const accessLabelsStr = uniq(accessLabels).sort().join('|');
-        //   this.accessLabels[accessLabelsStr] = this.accessLabels[accessLabelsStr] || 0;
-        //   this.accessLabels[accessLabelsStr] += 1;
-        // }
+    Object.keys(entity).sort().forEach((tag) => {
+      const fieldItems = forceArray(entity[tag]);
+      (fieldItems || []).forEach((fieldItem) => {
+        let subfieldsToUse = [];
+        if (typeof fieldItem !== 'string') {
+          subfieldsToUse = Object.keys(fieldItem).filter((k) => (k.length === 1)).sort();
+        }
+
+        if (subfieldsToUse.length > 0) {
+          // subfields
+
+          subfieldsToUse.forEach((code) => {
+            const f = `${tag} ${fieldItem.ind1 || '#'}${fieldItem.ind2 || '#'}$${code}`;
+            if (fieldItem[code]) {
+              const subfieldItems = forceArray(fieldItem[code]);
+
+              this.containingRecords[f] = (this.containingRecords[f] || 0) + 1;
+
+              this.occurrencesTotal += subfieldItems.length;
+              this.occurrences[f] = (this.occurrences[f] || 0) + 1;
+
+              subfieldItems.forEach((subfield) => {
+                this.samples[f] = this.samples[f] ? [this.samples[f][0], subfield] : [subfield];
+
+                this.valueSize[f] = this.valueSize[f] || {};
+                this.valueSize[f][subfield.length] = (this.valueSize[f][subfield.length] || 0) + 1;
+
+                const fp = FpStr(subfield);
+                this.fingerprints[f] = this.fingerprints[f] || {};
+                this.fingerprints[f][fp] = (this.fingerprints[f][fp] || 0) + 1;
+              });
+            }
+          });
+        } else {
+          // control field
+          const f = `${tag}`;
+
+          this.containingRecords[f] = (this.containingRecords[f] || 0) + 1;
+          this.occurrences[f] = (this.occurrences[f] || 0) + 1;
+
+          const fieldValue = typeof fieldItem === 'object' && fieldItem.value
+            ? fieldItem.value
+            : fieldItem;
+
+          this.samples[f] = this.samples[f] ? [this.samples[f][0], fieldValue] : [fieldValue];
+
+          this.valueSize[f] = this.valueSize[f] || {};
+          this.valueSize[f][fieldValue.length] = (this.valueSize[f][fieldValue.length] || 0) + 1;
+
+          const fp = FpStr(fieldValue);
+          this.fingerprints[f] = this.fingerprints[f] || {};
+          this.fingerprints[f][fp] = (this.fingerprints[f][fp] || 0) + 1;
+        }
       });
-    } else {
-      this.recordsTotalInvalid += 1;
-    }
-  }
-
-  getTotal() {
-    return {
-      records: this.recordsTotal,
-      // fieldsRelation: this.fieldsRelationTotal,
-      // accessLabels: this.accessLabels,
-      symbolsTotal: this.symbolsTotal,
-      fields: this.fieldsTotal,
-      recordsTotalInvalid: this.recordsTotalInvalid,
-    };
-  }
-
-  fromJSON(json) {
-    Object.assign(this, json);
-    return this;
+    });
   }
 
   toJSON() {
@@ -182,62 +177,12 @@ class StatCounter {
     );
   }
 
-  toString() {
-    return toTsv([
-      MARC_STAT_TSV_COLUMNS,
-      ...flattenDeep(
-        Object.keys(this.fieldsCount).sort()
-          .map((rType) =>
-            Object.keys(this.fieldsCount[rType]).sort()
-              .map((fCode) => {
-                const d = describeField(
-                  {
-                    tag: fCode.split('$')[0],
-                    subfield: `$${fCode.split('$')[1]}`,
-                  },
-                  null,
-                  rType,
-                  MARC_JSON_SCHEMA[this.marc],
-                );
-                return [
-                  rType,
-                  fCode,
-                  this.fieldsCount[rType][fCode] || '',
-                  // this.fieldsRelationCount[rType][fCode] || '',
-                  this.firstMetSamples[rType][fCode] || '',
-                  this.lastMetSamples[rType][fCode] || '',
-                  this.symbolsInFieldTotal[rType][fCode] || '',
-                  d.description || '',
-                  d.subfieldDescription || '',
-                ];
-              })),
-      ),
-    ]);
+  toTSV() {
+    return jsonToTsv(this.toJSON());
   }
 }
 
-const statChunk = async (records, config) => {
-  config = { ...(config || {}) };
-  const statCounter = new StatCounter(config.marc);
-
-  await cpMap(
-    records,
-    async (record) => {
-      // eslint-disable-next-line no-undef
-      const jsonEntities = await fromIso2709(record);
-      if (!Array.isArray(jsonEntities)) {
-        error(`Marc record (supposed ISO2709) parsing has been failed. Input: ${jsonEntities}`);
-        return [];
-      }
-      jsonEntities.forEach(statCounter);
-      return [];
-    },
-  );
-  return statCounter;
-};
-
 module.exports = {
   StatCounter,
-  statChunk,
-  toTsv,
+  // jsonToTsv,
 };
