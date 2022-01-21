@@ -1,27 +1,64 @@
-const FpStr = require('fpstr');
 const {
   forceArray,
-  sortBy,
   range,
 } = require('./utils/arrays');
 
+const { mergeObjectsReducer, sortByValue } = require('./utils/objects');
+
 const arr2tsv = (rows) => rows.map((row) => row.join('\t')).join('\n');
 
-const MARC_STAT_JSON_COLUMNS = [
-  'recordsTotal',
-  'occurrencesTotal',
-  'valueSize',
-  'samples',
-  'fingerprints',
-  'containingRecords',
-  'occurrences',
-];
-const sortByValue = (obj) => sortBy(
-  Object.keys(obj),
-  (k) => -obj[k],
-);
+// const MARC_STAT_JSON_COLUMNS = [
+//   'recordsTotal',
+//   'occurrencesTotal',
+//   'valueSize',
+//   'samples',
+//   'containingRecords',
+//   'occurrences',
+// ];
 
-const jsonToTsv = (jsonObj, topNValues = 3) => {
+const expandMarcObj = (rec, arrayIndex = false) => {
+  const kvObj = {};
+  // console.error(rec);
+  Object.keys(rec).forEach((k) => {
+    // if (typeof rec[k] === 'string') {
+    //   kvObj[k] = forceArray(rec[k]);
+    // } else if (Array.isArray(rec[k])) {
+    forceArray(rec[k]).forEach((fieldValue, fieldValueIdx) => {
+      if (typeof fieldValue === 'string') {
+        kvObj[k] = kvObj[k] || [];
+        kvObj[k].push(fieldValue);
+      } else {
+        Object.keys(fieldValue).filter(
+          (subfieldCode) => subfieldCode.length === 1,
+        ).sort().forEach(
+          (subfieldCode) => {
+            forceArray(fieldValue[subfieldCode]).forEach(
+              (subfieldValue, subfieldValueIdx) => {
+                if (arrayIndex) {
+                  const expandedKey = `${k}.${fieldValue.ind1}.${fieldValue.ind2}.${fieldValueIdx}.${subfieldCode}.${subfieldValueIdx}`;
+                  kvObj[expandedKey] = subfieldValue;
+                } else {
+                  const expandedKey = `${k}.${fieldValue.ind1}.${fieldValue.ind2}.${subfieldCode}`;
+                  // console.error('kvobj', 'kvobj', kvObj)
+                  if (!Array.isArray(kvObj[expandedKey])) {
+                    kvObj[expandedKey] = [];
+                  }
+                  kvObj[expandedKey].push(subfieldValue);
+                }
+              },
+            );
+          },
+        );
+      }
+    });
+  });
+  // });
+  // }
+  // console.error('kvObj', kvObj);
+  return kvObj;
+};
+
+const jsonToTsv = (jsonObj) => {
   const header = [
     'field',
     'code',
@@ -39,8 +76,6 @@ const jsonToTsv = (jsonObj, topNValues = 3) => {
 
     'topSize',
     'meanSize',
-    'fingerprintVariants',
-    ...(range(1, topNValues + 1, 1)).map((rank) => `topFingerprint_${rank}`),
   ];
   const usedFields = Object.keys(jsonObj.valueSize).sort();
   const rows = usedFields.map(
@@ -86,9 +121,6 @@ const jsonToTsv = (jsonObj, topNValues = 3) => {
             0,
           ) / jsonObj.occurrences[marcField]
         ).toFixed(2),
-
-        Object.keys(jsonObj.fingerprints[marcField]).length,
-        ...sortByValue(jsonObj.fingerprints[marcField]).slice(0, topNValues),
       ]);
     },
   );
@@ -102,73 +134,57 @@ class StatCounter {
     this.occurrencesTotal = 0;
     this.valueSize = {};
     this.samples = {};
-    this.fingerprints = {};
     this.containingRecords = {};
     this.occurrences = {};
   }
 
+  mergeJSON(dataObj) {
+    mergeObjectsReducer(this, dataObj);
+  }
+
   add(entity) {
     this.recordsTotal += 1;
+    const expandedEntity = expandMarcObj(entity, false);
+    const keys = Object.keys(expandedEntity).sort();
 
-    Object.keys(entity).sort().forEach((tag) => {
-      const fieldItems = forceArray(entity[tag]);
-      (fieldItems || []).forEach((fieldItem) => {
-        let subfieldsToUse = [];
-        if (typeof fieldItem !== 'string') {
-          subfieldsToUse = Object.keys(fieldItem).filter((k) => (k.length === 1)).sort();
-        }
+    keys.forEach((k) => {
+      if (!this.containingRecords[k]) {
+        this.containingRecords[k] = 0;
+      }
 
-        if (subfieldsToUse.length > 0) {
-          // subfields
+      if (!this.occurrences[k]) {
+        this.occurrences[k] = 0;
+      }
+      this.occurrences[k] += 1;
 
-          subfieldsToUse.forEach((code) => {
-            const f = `${tag} ${fieldItem.ind1 || '#'}${fieldItem.ind2 || '#'}$${code}`;
-            if (fieldItem[code]) {
-              const subfieldItems = forceArray(fieldItem[code]);
+      const values = forceArray(expandedEntity[k]);
+      this.containingRecords[k] += 1;
+      this.occurrencesTotal += values.length;
 
-              this.containingRecords[f] = (this.containingRecords[f] || 0) + 1;
-
-              this.occurrencesTotal += subfieldItems.length;
-              this.occurrences[f] = (this.occurrences[f] || 0) + 1;
-
-              subfieldItems.forEach((subfield) => {
-                this.samples[f] = this.samples[f] ? [this.samples[f][0], subfield] : [subfield];
-
-                this.valueSize[f] = this.valueSize[f] || {};
-                this.valueSize[f][subfield.length] = (this.valueSize[f][subfield.length] || 0) + 1;
-
-                const fp = FpStr(subfield);
-                this.fingerprints[f] = this.fingerprints[f] || {};
-                this.fingerprints[f][fp] = (this.fingerprints[f][fp] || 0) + 1;
-              });
-            }
-          });
+      values.forEach((value) => {
+        // console.error(k, value);
+        // samples
+        if (!this.samples[k]) {
+          this.samples[k] = [value, null];
         } else {
-          // control field
-          const f = `${tag}`;
-
-          this.containingRecords[f] = (this.containingRecords[f] || 0) + 1;
-          this.occurrences[f] = (this.occurrences[f] || 0) + 1;
-
-          const fieldValue = typeof fieldItem === 'object' && fieldItem.value
-            ? fieldItem.value
-            : fieldItem;
-
-          this.samples[f] = this.samples[f] ? [this.samples[f][0], fieldValue] : [fieldValue];
-
-          this.valueSize[f] = this.valueSize[f] || {};
-          this.valueSize[f][fieldValue.length] = (this.valueSize[f][fieldValue.length] || 0) + 1;
-
-          const fp = FpStr(fieldValue);
-          this.fingerprints[f] = this.fingerprints[f] || {};
-          this.fingerprints[f][fp] = (this.fingerprints[f][fp] || 0) + 1;
+          this.samples[k] = [this.samples[k][0], value];
         }
+
+        // valueSize
+        if (!this.valueSize[k]) {
+          this.valueSize[k] = {};
+        }
+        const la = `${value.length}`;
+        if (!this.valueSize[k][la]) {
+          this.valueSize[k][la] = 0;
+        }
+        this.valueSize[k][la] += 1;
       });
     });
   }
 
   toJSON() {
-    return MARC_STAT_JSON_COLUMNS.reduce(
+    return Object.keys(this).reduce(
       (a, k) => ({
         ...a,
         [k]: this[k],

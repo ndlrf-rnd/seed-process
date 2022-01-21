@@ -2,8 +2,8 @@ const formats = require('../formats');
 
 const {
   error,
-  info,
   warn,
+  debug,
 } = require('../utils/log');
 
 const {
@@ -13,7 +13,6 @@ const {
 
 const { isEmpty } = require('../utils/types');
 const { flattenDeep } = require('../utils/arrays');
-const { cpMap } = require('../utils/promise');
 
 const {
   DEFAULT_JOBS,
@@ -21,6 +20,8 @@ const {
 } = require('../constants');
 
 const { StatCounter } = require('../statCounter');
+const { executeParallel } = require('../workers');
+const { cpMap } = require('../utils/promise');
 
 const chunkBuffer = (chunk, startMarker, endMarker, encoding, limit) => {
   let chunkOffset = 0;
@@ -84,6 +85,7 @@ const importStream = (rs, config, onProgress) => (
     // eslint-disable-next-line no-async-promise-executor
     async (resolve, reject) => {
       const statCounter = new StatCounter();
+      const fpStatCounter = new StatCounter();
       const startTsSec = (new Date()).getTime() / 1000.0;
       try {
         const mediaType = config.inputMediaType;
@@ -124,7 +126,7 @@ const importStream = (rs, config, onProgress) => (
               header = (typeof format.serial[mediaType].processHeader === 'function')
                 ? await format.serial[mediaType].processHeader(wrappedHeaderBuffer[0], config)
                 : wrappedHeaderBuffer[0];
-              info(`Detected TSV header (${lengthInBytes(wrappedHeaderBuffer[0])} bytes, EndOfHeader symbol: "${escapeUnprintable(format.serial[mediaType].endHeaderMarker)}", decoded string: [ ${header.join(' | ')} ]`);
+              warn(`Detected TSV header (${lengthInBytes(wrappedHeaderBuffer[0])} bytes, EndOfHeader symbol: "${escapeUnprintable(format.serial[mediaType].endHeaderMarker)}", decoded string: [ ${header.join(' | ')} ]`);
             } else {
               warn(`WARNING: Unexpected header buffers count: ${wrappedHeaderBuffer.length}. No header will be used.`);
             }
@@ -156,24 +158,34 @@ const importStream = (rs, config, onProgress) => (
 
           batchSizeDocuments = recordBuffers.length;
           documentsCompleted += recordBuffers.length;
-          try {
-            const records = flattenDeep(await cpMap(recordBuffers, format.serial[mediaType].from));
-            records.forEach((rec) => statCounter.add(rec));
-            // statCounter.recordsCount += recordBuffers.length;
-          } catch (e) {
-            reject(e);
+          if (config.command === 'convert') {
+            const mappedRecords = flattenDeep(await executeParallel('convertChunk', recordBuffers.map((r) => r), config));
+            mappedRecords.forEach((rec) => statCounter.add(rec));
+          } else if (config.command === 'stats') {
+            const scs = flattenDeep(await executeParallel('statChunk', recordBuffers.map((r) => r), config));
+            scs.forEach((sc) => {
+              statCounter.mergeJSON(sc);
+            });
+          } else if (config.command === 'fingerprint') {
+            const mappedRecords = flattenDeep(await executeParallel('convertChunk', recordBuffers.map((r) => r), config));
+            const fingerprintedRecords = await cpMap(
+              mappedRecords,
+              async (rec) => {
+                const keys = Object.keys(rec).sort();
+                const values = keys.map((k) => rec[k]);
+                const fpValues = flattenDeep(await executeParallel('fingerprint', values, config));
+                const res = {};
+                keys.forEach((key, idx) => {
+                  res[key] = fpValues[idx];
+                });
+                return res;
+              },
+            );
+            fingerprintedRecords.forEach((rec) => fpStatCounter.add(rec));
+            debug(`Merged ${mappedRecords.length} record fingerprints in $
+                  {(new Date()).getTime() - t0} ms`);
           }
-          /*
-          const batchExecutionReport = {
-            bytes_completed: bytesCompleted,
-            bytes_estimated: bytesEstimated,
-            documents_completed: documentsCompleted,
-            // ...((result || []).reduce(
-            //   (a, o) => mergeObjectsReducer(a, o),
-            //   {},
-            // )),
-          };
-          */
+
           if (typeof (onProgress) === 'function') {
             onProgress({
               records: statCounter.recordsTotal,
@@ -196,30 +208,21 @@ const importStream = (rs, config, onProgress) => (
             }
             if (!isProcessingCompleted) {
               isProcessingCompleted = true;
-              // const res = statCounter.toJSON();
-              // info(`Variant fields: ${Object.keys(res).length}`);
-              resolve(statCounter);
-              // omit(
-              //   stats.reduce((a, o) => mergeObjectsReducer(a, o, false), {}),
-              //   [
-              //    'bytes_completed',
-              //    'bytes_estimated',
-              //    'documents_estimated',
-              //    'documents_completed'
-              //   ],
-              // )
-              // await refreshDbStats();
+              resolve(config.fingerprint ? fpStatCounter : statCounter);
             }
           } catch (e) {
             if (typeof onProgress === 'function') {
-              onProgress();
+              onProgress({
+                records: statCounter.recordsTotal,
+                bytes: bytesCompleted,
+                elapsedSec: (new Date()).getTime() / 1000.0 - startTsSec,
+              });
             }
             // await refreshDbStats();
             error('ERROR: Parallel execution fail:', e);
             reject(e);
           }
         };
-
         const onData = async (data) => {
           rs.pause();
           bytesCompleted += data.byteLength;

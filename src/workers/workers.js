@@ -9,8 +9,9 @@ const {
 } = require('../constants');
 const { isError } = require('../utils/types');
 const {
-  info,
   error,
+  debug,
+  info,
 } = require('../utils/log');
 
 global.WORKERS = [];
@@ -51,6 +52,7 @@ const initWorker = (handlers = global.TASK_TYPE_HANDLERS, jobs = DEFAULT_JOBS) =
         if (typeof handler === 'undefined') {
           onWorkerError(new Error(`[CLUSTER:${process.pid}] No such task registered: ${task}`));
         }
+        // console.error(data.length)
         handler(data, ctx).catch(onWorkerError).then(
           (responseData) => process.send(
             {
@@ -111,7 +113,7 @@ const tryFinalizeCurrent = () => {
       const recPerSec = global.TASK_HANDLER.recordsCount / (runTimeSec || (1 / 1000));
       const results = flattenDeep(global.TASK_HANDLER.results);
       global.TASK_HANDLER = null;
-      process.stderr.write(`[CLUSTER:${process.pid}] Finished task in ${runTimeSec.toFixed(3)} seconds (${recPerSec.toFixed(1)} rec/sec)\n`);
+      debug(`[CLUSTER:${process.pid}] Finished task in ${runTimeSec.toFixed(3)} seconds (${recPerSec.toFixed(1)} rec/sec)\n`);
       setImmediate(processQueue);
       if (_tasksFailed === 0) {
         _resolve(results);
@@ -175,7 +177,7 @@ const executeParallel = (
         handler(inputArr, ctx).catch(reject).then((res) => resolve(forceArray([res])));
       }
     } else if (cluster.isMaster) {
-      info(`[CLUSTER:${process.pid}] Scheduling task "${task}" using ${global.WORKERS.length} workers to process ${forceArray(inputArr).length} records\n`);
+      debug(`[CLUSTER:${process.pid}] Scheduling task "${task}" using ${global.WORKERS.length} workers to process ${forceArray(inputArr).length} records\n`);
       global.TASK_HANDLERS.push(
         {
           results: new Array(global.JOBS),
@@ -202,9 +204,8 @@ const executeParallel = (
         };
         // Start additional workers
         for (let i = global.WORKERS.length; i < global.JOBS; i += 1) {
-          if (process.env.DEBUG) {
-            process.stderr.write(`[CLUSTER:${process.pid}] Forking cluster worker ${i + 1} / ${global.JOBS}\n`);
-          }
+          info(`[CLUSTER:${process.pid}] Forking cluster worker ${i + 1} / ${global.JOBS}`);
+
           const worker = cluster.fork();
           global.WORKERS.push(worker);
 

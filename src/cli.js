@@ -100,6 +100,15 @@ const parseArgs = (args) => {
   );
 
   statsParser.add_argument(
+    '-P',
+    '--fingerprint',
+    {
+      help: 'Output fingerprint stats',
+      action: 'store_true',
+    },
+  );
+
+  statsParser.add_argument(
     '-o',
     '--output',
     {

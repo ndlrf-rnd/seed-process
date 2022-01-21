@@ -2,12 +2,14 @@ const cluster = require('cluster');
 const fs = require('fs');
 const { parseArgs } = require('./cli');
 const {
+  padLeft,
+  prettyBytes,
+} = require('./utils/text');
+const {
   error,
   info,
   debug,
 } = require('./utils/log');
-const { padLeft } = require('./utils/text');
-
 const { importStream } = require('./operations/importStream');
 
 const run = async (config) => {
@@ -23,9 +25,14 @@ const run = async (config) => {
     if (config.input && (config.input !== '-')) {
       inputStream = fs.createReadStream(config.input);
     }
+    let bytesTotal = null;
+    if (inputStream.path) {
+      bytesTotal = fs.statSync(inputStream.path).size;
+    }
     let startTimeSec;
     let timeSec = (new Date()).getTime() / 1000.0;
     let prevRecCount = 0;
+    let prevBytesCount = 0;
     const resultingStatsCounter = await importStream(
       inputStream,
       config,
@@ -38,17 +45,21 @@ const run = async (config) => {
         timeSec = (new Date()).getTime() / 1000.0;
 
         process.stderr.write(`${[
+          ...(bytesTotal ? [
+            padLeft(`${((bytes / bytesTotal) * 100).toFixed(2)}%`, 7),
+            padLeft(`${prettyBytes((bytes - prevBytesCount) / (timeSec - startTimeSec))}/sec`, 16),
+            `${padLeft(bytes, Math.log10(bytesTotal))} / ${bytesTotal} bytes`,
+          ] : [
+            padLeft(`${bytes} bytes`, 16, ' '),
+          ]),
           `${padLeft(records, 8, ' ')} recs`,
-          `${padLeft(bytes, 12, ' ')} bytes`,
-          `${padLeft(elapsedSec.toFixed(1), 8, ' ')} secs ET`,
+          `${elapsedSec.toFixed()} : ${(elapsedSec / (bytes / bytesTotal)).toFixed()}  sec`,
           `${padLeft(((records - prevRecCount) / (timeSec - startTimeSec)).toFixed(1), 8, ' ')} rec/sec`,
         ].join('\t')}\n`);
         prevRecCount = records;
+        prevBytesCount = bytes;
       },
     );
-    // const resultStr = JSON.stringify(statsResult, null, 2);
-    // const resultStr = JSON.stringify(statsResult, null, 2);
-    // JSON.stringify(statsResult, null, 2);
     const resultStr = resultingStatsCounter.toTSV();
 
     if (config.output && (config.output !== '-')) {

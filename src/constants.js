@@ -10,7 +10,7 @@ const NAME = NPM_PACKAGE_MANIFEST.name;
 const DEFAULT_ENCODING = null;
 const DEFAULT_JOBS = Math.max(
   2,
-  parseInt(process.env.CATALOG_JOBS, 10) || os.cpus().length,
+  parseInt(process.env.CATALOG_JOBS, 10) || os.cpus().length - 1,
 );
 
 /**

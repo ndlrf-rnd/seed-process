@@ -1,69 +1,46 @@
-const { executeParallel, initWorker } = require('./workers');
+const FpStr = require('fpstr');
+
+const { flatten } = require('@seed/format-marc/src/utils/arrays');
 const {
-  warn,
-  info,
-  debug,
-  error,
-  sanitizeUuid,
-} = require('../utils/log');
-const { flatten, forceArray } = require('../utils/arrays');
+  executeParallel,
+  initWorker,
+} = require('./workers');
 const { cpMap } = require('../utils/promise');
 const formats = require('../formats');
+const { StatCounter } = require('../statCounter');
 
-const convertChunk = async (records, ctx) => {
-  try {
-    return flatten(
-      await cpMap(
-        forceArray(records),
-        async (record) => {
-          if (!record) {
-            return [];
-          }
-          const fromType = record.mediaType || record.media_type;
-          let toType = ctx.mediaType;
-          const format = formats[fromType] || {};
-          const to = format && (format.to || null);
-          if (record.relation_kind) {
-            toType = null;
-          } else {
-            info(`[WORKER:${process.pid}] ${record.kind}/${record.source}/${record.key}#${record.provider || ctx.provider} (${record.serial} SipHash2-4:${sanitizeUuid(record.record_hash)}) ${fromType} --> ${toType}`);
-            if (!(to && to[toType])) {
-              warn(`[WORKER:${process.pid}] Record format is not possible to convert ${fromType} --> ${toType}`);
-              debug(`[WORKER:${process.pid}] Falling back to original media type ${fromType}`);
-              // console.log(record, ctx);
-              toType = fromType;
-            }
-            if (!(to && to[toType])) {
-              warn(`[WORKER:${process.pid}] Record format is not possible to convert ${fromType} --> ${toType}`);
-              debug(`[WORKER:${process.pid}] Returning record as is`);
-              toType = null;
-            }
-          }
-          return (toType && to[toType]
-            ? forceArray(await to[toType](record.record, ctx))
-            : [{ metadata: { record: record.record } }]
-          ).map(
-            (v) => ({
-              ...record,
-              record: v,
-              type: toType === null ? fromType : toType,
-            }),
-          );
-        },
-      ),
-    );
-  } catch (e) {
-    error(e);
-    return [];
-  }
+const statChunk = async (records, ctx) => {
+  const mediaType = ctx.inputMediaType;
+  const format = formats[mediaType];
+  const recordObjs = flatten(await cpMap(records, async (r) => format.serial[mediaType].from(r)));
+
+  // console.error('SC', 'recordObjs',recordObjs)
+  const statCounter = new StatCounter();
+  recordObjs.forEach((rec) => statCounter.add(rec));
+  // console.error('SC', statCounter, 'SCJSON', statCounter.toJSON())
+  return statCounter.toJSON();
 };
 
+const convertChunk = async (records, ctx) => {
+  const mediaType = ctx.inputMediaType;
+  const format = formats[mediaType];
+  return flatten(cpMap(records, async (r) => format.serial[mediaType].from(r)));
+};
+
+const fingerprint = async (strrings, ctx) => strrings.map(
+  (str) => FpStr(str, ctx),
+);
+
 initWorker({
+  fingerprint,
   convertChunk,
+  statChunk,
 });
 
 module.exports = {
   initWorker,
   convertChunk,
+  statChunk,
+  fingerprint,
   executeParallel,
 };

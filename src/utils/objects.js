@@ -1,3 +1,4 @@
+const traverse = require('traverse');
 const defaults = require('lodash.defaults');
 const get = require('lodash.get');
 const mapValues = require('lodash.mapvalues');
@@ -5,8 +6,11 @@ const omit = require('lodash.omit');
 const pick = require('lodash.pick');
 const pickBy = require('lodash.pickby');
 const set = require('lodash.set');
-const traverse = require('traverse');
-const { isObject, isEmpty } = require('./types');
+const sortBy = require('lodash.sortby');
+const {
+  isObject,
+  isEmpty,
+} = require('./types');
 
 const defaultTestFn = (el) => !isEmpty(el);
 const removeEmpty = (el, isNotEmpty = defaultTestFn) => {
@@ -99,8 +103,13 @@ const pathsStrings = (obj, collapsed = false) => {
 };
 
 const omitEmpty = (obj) => pickBy(obj, (v) => (typeof v !== 'undefined') && (v !== null));
+const sortByValue = (obj) => sortBy(
+  Object.keys(obj),
+  (k) => -obj[k],
+);
 
 module.exports = {
+  sortByValue,
   defaults,
   get,
   mapValues,
