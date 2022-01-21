@@ -47,14 +47,14 @@ const run = async (config) => {
         process.stderr.write(`${[
           ...(bytesTotal ? [
             padLeft(`${((bytes / bytesTotal) * 100).toFixed(2)}%`, 7),
-            padLeft(`${prettyBytes((bytes - prevBytesCount) / (timeSec - startTimeSec))}/sec`, 16),
-            `${padLeft(bytes, Math.log10(bytesTotal))} / ${bytesTotal} bytes`,
-          ] : [
-            padLeft(`${bytes} bytes`, 16, ' '),
-          ]),
+          ] : []),
+          `${padLeft(((records - prevRecCount) / (timeSec - startTimeSec)).toFixed(1), 12, ' ')} rec/sec`,
           `${padLeft(records, 8, ' ')} recs`,
-          `${elapsedSec.toFixed()} : ${(elapsedSec / (bytes / bytesTotal)).toFixed()}  sec`,
-          `${padLeft(((records - prevRecCount) / (timeSec - startTimeSec)).toFixed(1), 8, ' ')} rec/sec`,
+          padLeft(`${prettyBytes((bytes - prevBytesCount) / (timeSec - startTimeSec))}/sec`, 16),
+          bytesTotal
+            ? `${padLeft(bytes, Math.log10(bytesTotal))} / ${bytesTotal} bytes`
+            : padLeft(`${bytes} bytes`, 16, ' '),
+          `${padLeft(elapsedSec.toFixed(0), 5)} sec`,
         ].join('\t')}\n`);
         prevRecCount = records;
         prevBytesCount = bytes;

@@ -31,7 +31,7 @@ const DEFAULT_DOWNLOAD_HEADERS = {
   'Transfer-Encoding': 'chunked', // ! Important
 };
 
-const MAX_WORKER_DATA_SIZE_BYTES = 4 * 1024 * 1024;
+const MAX_WORKER_DATA_SIZE_BYTES = 1 * 1024 * 1024;
 
 const DEFAULT_MEDIA_TYPE = 'application/text';
 const MAX_URL_LENGTH = 8192;

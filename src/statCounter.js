@@ -3,26 +3,13 @@ const {
   range,
 } = require('./utils/arrays');
 
-const { mergeObjectsReducer, sortByValue } = require('./utils/objects');
+const { mergeObjectsReducer } = require('./utils/objects');
 
 const arr2tsv = (rows) => rows.map((row) => row.join('\t')).join('\n');
 
-// const MARC_STAT_JSON_COLUMNS = [
-//   'recordsTotal',
-//   'occurrencesTotal',
-//   'valueSize',
-//   'samples',
-//   'containingRecords',
-//   'occurrences',
-// ];
-
 const expandMarcObj = (rec, arrayIndex = false) => {
   const kvObj = {};
-  // console.error(rec);
   Object.keys(rec).forEach((k) => {
-    // if (typeof rec[k] === 'string') {
-    //   kvObj[k] = forceArray(rec[k]);
-    // } else if (Array.isArray(rec[k])) {
     forceArray(rec[k]).forEach((fieldValue, fieldValueIdx) => {
       if (typeof fieldValue === 'string') {
         kvObj[k] = kvObj[k] || [];
@@ -52,30 +39,21 @@ const expandMarcObj = (rec, arrayIndex = false) => {
       }
     });
   });
-  // });
-  // }
-  // console.error('kvObj', kvObj);
   return kvObj;
 };
 
 const jsonToTsv = (jsonObj) => {
   const header = [
-    'field',
     'code',
     'ind1',
     'ind2',
     'subfield',
 
     'containingRecords',
-    'containingRecords_pt',
-
     'occurrences',
-    'occurrences_pt',
+    'meanSize',
 
     ...(range(1, 2 + 1, 1)).map((rank) => `sample_${rank}`),
-
-    'topSize',
-    'meanSize',
   ];
   const usedFields = Object.keys(jsonObj.valueSize).sort();
   const rows = usedFields.map(
@@ -85,32 +63,11 @@ const jsonToTsv = (jsonObj) => {
         jsonObj.samples[marcField][1] || '',
       ];
 
-      const inds = (marcField.split(' ')[1] || '  ');
       return ([
-        // Field key part
-        marcField,
-        marcField.split(' ')[0],
-        inds[0],
-        inds[1],
-        marcField.replace(/^[^$]+/ui, ''),
+        ...(marcField + ('.'.repeat(3))).split('.').slice(0, 4),
 
-        // Records impact
         jsonObj.containingRecords[marcField],
-        `${(
-          (100 * jsonObj.containingRecords[marcField]) / jsonObj.recordsTotal
-        ).toFixed(2)}%`,
-
-        // Data fields impact
         jsonObj.occurrences[marcField],
-        `${(
-          (100 * jsonObj.occurrences[marcField]) / jsonObj.occurrencesTotal
-        ).toFixed(2)}%`,
-
-        // Samples
-        ...firstLastSample,
-
-        // Median
-        sortByValue(jsonObj.valueSize[marcField])[0],
 
         // Mean
         (
@@ -121,6 +78,8 @@ const jsonToTsv = (jsonObj) => {
             0,
           ) / jsonObj.occurrences[marcField]
         ).toFixed(2),
+
+        ...firstLastSample,
       ]);
     },
   );
@@ -151,23 +110,21 @@ class StatCounter {
       if (!this.containingRecords[k]) {
         this.containingRecords[k] = 0;
       }
+      this.containingRecords[k] += 1;
 
+      const values = forceArray(expandedEntity[k]);
       if (!this.occurrences[k]) {
         this.occurrences[k] = 0;
       }
-      this.occurrences[k] += 1;
-
-      const values = forceArray(expandedEntity[k]);
-      this.containingRecords[k] += 1;
+      this.occurrences[k] += values.length;
       this.occurrencesTotal += values.length;
 
       values.forEach((value) => {
-        // console.error(k, value);
         // samples
-        if (!this.samples[k]) {
+        if (typeof this.samples[k] === 'undefined') {
           this.samples[k] = [value, null];
         } else {
-          this.samples[k] = [this.samples[k][0], value];
+          this.samples[k][1] = value;
         }
 
         // valueSize
@@ -200,5 +157,4 @@ class StatCounter {
 
 module.exports = {
   StatCounter,
-  // jsonToTsv,
 };
