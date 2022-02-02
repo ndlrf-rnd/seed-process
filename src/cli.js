@@ -3,6 +3,7 @@ const formats = require('./formats');
 const {
   DEFAULT_JOBS,
   VERSION,
+  DEFAULT_BATCH_SIZE,
 } = require('./constants');
 
 class NormalizeMediaTypeAndSave extends argparse.Action {
@@ -101,7 +102,7 @@ const parseArgs = (args) => {
       help: 'Worker input batch max size in bytes',
       type: 'int',
       dest: 'batchSize',
-      default: 4 * 1024 * 1024,
+      default: DEFAULT_BATCH_SIZE,
     },
   );
 

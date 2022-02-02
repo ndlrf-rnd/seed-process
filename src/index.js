@@ -13,6 +13,7 @@ const {
   error,
   info,
   debug,
+  warn,
 } = require('./utils/log');
 
 const { convertStream } = require('./convertStream');
@@ -25,16 +26,12 @@ const { flattenDeep } = require('./utils/arrays');
 const { fingerprint } = require('./operations/fingerprint');
 const { convertChunk } = require('./operations/convertChunk');
 const { describeFieldFile } = require('./operations/describeFieldFile');
-const { TSV_MEDIA_TYPE } = require('./constants');
-
-const FLUSH_THRESHOLD = 32;
-const FIELD_STAT_HEADER = ['field', 'occurrences', 'unique'];
-const TSV_HEADER = [
-  'dialect', 'format',
-  'code', 'subfield',
-  'ind1', 'ind2',
-  'value', 'record',
-];
+const {
+  TSV_MEDIA_TYPE,
+  TSV_HEADER,
+  FLUSH_THRESHOLD,
+  FIELD_STAT_HEADER,
+} = require('./constants');
 
 const run = async (config) => new Promise((resolve, reject) => {
   /**
@@ -66,7 +63,7 @@ const run = async (config) => new Promise((resolve, reject) => {
   let recordsProcessed = 0;
   const fieldsBuffers = {};
 
-  const flush = (keyToFlush, flushThreshold = 0) => {
+  const flush = async (keyToFlush, flushThreshold = 0) => {
     const filePath = path.join(dbPath, `${keyToFlush}.tsv`);
     if (fieldsBuffers[keyToFlush].length > flushThreshold) {
       const isNewFile = !fs.existsSync(filePath);
@@ -76,27 +73,14 @@ const run = async (config) => new Promise((resolve, reject) => {
       ].map(
         (f) => `${f}\n`,
       ).join('');
-
-      return new Promise(
-        (flushResolve, flushReject) => {
-          fs.appendFile(
-            filePath,
-            dataStr,
-            (err) => {
-              if (err) {
-                error(err);
-                flushReject(err);
-              } else {
-                recordsFlushed += fieldsBuffers[keyToFlush].length;
-                fieldsBuffers[keyToFlush] = [];
-                flushResolve(filePath);
-              }
-            },
-          );
-        },
+      await fsp.appendFile(
+        filePath,
+        dataStr,
       );
+      recordsFlushed += fieldsBuffers[keyToFlush].length;
+      fieldsBuffers[keyToFlush] = [];
     }
-    return Promise.resolve(filePath);
+    return filePath;
   };
   const onProgressFn = ({
     records,
@@ -123,8 +107,8 @@ const run = async (config) => new Promise((resolve, reject) => {
             pq.push(flush(key, FLUSH_THRESHOLD));
           }
           key = newKey;
-          if (typeof fieldsBuffers[newKey] === 'undefined') {
-            fieldsBuffers[newKey] = [];
+          if (typeof fieldsBuffers[key] === 'undefined') {
+            fieldsBuffers[key] = [];
           }
           fieldsBuffers[key].push(rowValues.slice(-2).join('\t'));
           recordsProcessed += 1;
@@ -190,13 +174,17 @@ const run = async (config) => new Promise((resolve, reject) => {
       );
 
       const fieldStats = await executeParallel('describeFieldFile', fieldDataFilePaths, config);
-      await Promise.all(
-        fieldStats.map(
-          ({
-            input,
-            output,
-          }) => fsp.rename(output, input),
-        ),
+      await fieldStats.forEach(
+        ({
+          input,
+          output,
+        }) => {
+          try {
+            fs.renameSync(output, input);
+          } catch (e) {
+            warn(e);
+          }
+        },
       );
       const outputTsvData = [
         flattenDeep([

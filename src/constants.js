@@ -1,6 +1,6 @@
+const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const fs = require('fs');
 
 const NPM_PACKAGE_MANIFEST_PATH = path.join(__dirname, '..', 'package.json');
 const NPM_PACKAGE_MANIFEST = JSON.parse(fs.readFileSync(NPM_PACKAGE_MANIFEST_PATH, 'utf-8'));
@@ -8,8 +8,11 @@ const VERSION = NPM_PACKAGE_MANIFEST.version;
 const NAME = NPM_PACKAGE_MANIFEST.name;
 
 const DEFAULT_ENCODING = null;
+
+const MIN_DEFAULT_JOBS = 2;
+
 const DEFAULT_JOBS = Math.max(
-  2,
+  MIN_DEFAULT_JOBS,
   parseInt(process.env.CATALOG_JOBS, 10) || os.cpus().length - 1,
 );
 
@@ -44,11 +47,25 @@ const TSV_LINE_SEPARATOR = '\n';
 const TSV_CELL_SEPARATOR = '\t';
 const TSV_EXTENSION = 'tsv';
 const TSV_SCHEMA_DOC = 'https://digital-preservation.github.io/csv-schema/csv-schema-1.2.html';
+const DEFAULT_BATCH_SIZE = 4 * 1024 * 1024;
+const FLUSH_THRESHOLD = 100;
+const FIELD_STAT_HEADER = ['field', 'occurrences', 'unique'];
+const TSV_HEADER = [
+  'dialect', 'format',
+  'code', 'subfield',
+  'ind1', 'ind2',
+  'value', 'record',
+];
 
 module.exports = {
+  FLUSH_THRESHOLD,
+  FIELD_STAT_HEADER,
+  TSV_HEADER,
+  DEFAULT_BATCH_SIZE,
   DEFAULT_DOWNLOAD_HEADERS,
   DEFAULT_ENCODING,
   DEFAULT_JOBS,
+  MIN_DEFAULT_JOBS,
   DEFAULT_MEDIA_TYPE,
   FETCH_PARAMS,
   FETCH_PROGRESS_PARAMS,
