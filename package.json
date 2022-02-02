@@ -1,6 +1,6 @@
 {
   "name": "@seed/process",
-  "version": "1.2.3",
+  "version": "2.0.1",
   "description": "SEED - Processing engine",
   "tags": [
     "The Russian National Electronic library",
@@ -40,9 +40,9 @@
   "module": "lib/index.js",
   "man": "README.md",
   "dependencies": {
-    "@seed/format-marc": "ndlrf-rnd/seed-format-marc#v2.1.0",
-    "fpstr": "ndlrf-rnd/fpstr#v1.0.2",
+    "@seed/format-marc": "ndlrf-rnd/seed-format-marc#v2.3.1",
     "argparse": "2.0.1",
+    "fpstr": "ndlrf-rnd/fpstr#v1.0.2",
     "lodash.defaults": "4.2.0",
     "lodash.flattendeep": "4.4.0",
     "lodash.get": "4.4.2",
@@ -51,9 +51,9 @@
     "lodash.omit": "4.5.0",
     "lodash.pick": "4.4.0",
     "lodash.pickby": "4.6.0",
-    "lodash.sortby": "4.7.0",
     "lodash.range": "3.2.0",
     "lodash.set": "4.3.2",
+    "lodash.sortby": "4.7.0",
     "traverse": "0.6.6"
   },
   "devDependencies": {

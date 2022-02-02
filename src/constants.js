@@ -31,14 +31,19 @@ const DEFAULT_DOWNLOAD_HEADERS = {
   'Transfer-Encoding': 'chunked', // ! Important
 };
 
-const MAX_WORKER_DATA_SIZE_BYTES = 1 * 1024 * 1024;
-
 const DEFAULT_MEDIA_TYPE = 'application/text';
 const MAX_URL_LENGTH = 8192;
 
 const REGISTERED_FORMATS = [
   'marc',
 ];
+
+const TSV_MEDIA_TYPE = 'text/tab-separated-values';
+const TSV_ENCODING = 'utf-8';
+const TSV_LINE_SEPARATOR = '\n';
+const TSV_CELL_SEPARATOR = '\t';
+const TSV_EXTENSION = 'tsv';
+const TSV_SCHEMA_DOC = 'https://digital-preservation.github.io/csv-schema/csv-schema-1.2.html';
 
 module.exports = {
   DEFAULT_DOWNLOAD_HEADERS,
@@ -47,10 +52,15 @@ module.exports = {
   DEFAULT_MEDIA_TYPE,
   FETCH_PARAMS,
   FETCH_PROGRESS_PARAMS,
-  MAX_WORKER_DATA_SIZE_BYTES,
   NAME,
   VERSION,
   MAX_URL_LENGTH,
   REGISTERED_FORMATS,
   NPM_PACKAGE_MANIFEST,
+  TSV_MEDIA_TYPE,
+  TSV_EXTENSION,
+  TSV_SCHEMA_DOC,
+  TSV_CELL_SEPARATOR,
+  TSV_LINE_SEPARATOR,
+  TSV_ENCODING,
 };

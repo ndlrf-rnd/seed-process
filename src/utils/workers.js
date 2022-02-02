@@ -2,17 +2,17 @@ const cluster = require('cluster');
 const {
   flattenDeep,
   forceArray,
-} = require('../utils/arrays');
+} = require('./arrays');
 const {
   WORKER_SYNC,
   DEFAULT_JOBS,
 } = require('../constants');
-const { isError } = require('../utils/types');
+const { isError } = require('./types');
 const {
   error,
   debug,
   info,
-} = require('../utils/log');
+} = require('./log');
 
 global.WORKERS = [];
 global.WORKERS_ONLINE = 0;

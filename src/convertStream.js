@@ -1,27 +1,18 @@
-const formats = require('../formats');
+const formats = require('./formats');
 
 const {
   error,
   warn,
-  debug,
-} = require('../utils/log');
+} = require('./utils/log');
 
 const {
   lengthInBytes,
   escapeUnprintable,
-} = require('../utils/text');
+} = require('./utils/text');
 
-const { isEmpty } = require('../utils/types');
-const { flattenDeep } = require('../utils/arrays');
-
-const {
-  DEFAULT_JOBS,
-  MAX_WORKER_DATA_SIZE_BYTES,
-} = require('../constants');
-
-const { StatCounter } = require('../statCounter');
-const { executeParallel } = require('../workers');
-const { cpMap } = require('../utils/promise');
+const { isEmpty } = require('./utils/types');
+const { flattenDeep } = require('./utils/arrays');
+const { executeParallel } = require('./utils/workers');
 
 const chunkBuffer = (chunk, startMarker, endMarker, encoding, limit) => {
   let chunkOffset = 0;
@@ -76,24 +67,34 @@ const chunkBuffer = (chunk, startMarker, endMarker, encoding, limit) => {
 /**
  *
  * @param rs
- * @param {Object[string:string]} config
+ * @param {Object} config
+ * @param {string} config.inputMediaType
+ * @param {string} config.outputMediaType
+ * @param {string} config.jobs - parallel
+ * @param {string} config.batchSize - worker input batch size in bytes
+ * @param {string} config.encoding - input encoding
+ * @param {string} config.startHeaderMarker - start header marker
+ * @param {string} config.endHeaderMarker - end header marker
+ * @param {string} config.header - add header to output
+ * @param {?function} config.processHeader - process header function
  * @param {function} onProgress
- * @returns {Promise<unknown>}
+ * @param {function} onError
+ * @returns {Promise<Object>}
  */
-const importStream = (rs, config, onProgress) => (
+const convertStream = (rs, config, onProgress, onError) => (
   new Promise(
     // eslint-disable-next-line no-async-promise-executor
     async (resolve, reject) => {
-      const statCounter = new StatCounter();
-      const fpStatCounter = new StatCounter();
+      // const statCounter = new StatCounter();
       const startTsSec = (new Date()).getTime() / 1000.0;
+      let batchStartTsSec = startTsSec;
       try {
         const mediaType = config.inputMediaType;
         const format = formats[mediaType];
         if (!format) {
           reject(new Error(`Format not found for media-type: ${mediaType}`));
         }
-        const maxPoolSize = MAX_WORKER_DATA_SIZE_BYTES * (config.jobs || DEFAULT_JOBS);
+        const maxPoolSize = config.batchSize * config.jobs;
 
         let bytesCompleted = 0;
         let isProcessingCompleted = false;
@@ -101,12 +102,10 @@ const importStream = (rs, config, onProgress) => (
         let pool = [];
 
         let poolLen = 0;
-        let documentsCompleted = 0;
+        let recordsCompleted = 0;
 
         // eslint-disable-next-line no-unused-vars
-        let batchSizeBytes = 0;
         // eslint-disable-next-line no-unused-vars
-        let batchSizeDocuments = 0;
 
         let header = null;
         const encoding = (format && format.encoding) || config.encoding;
@@ -156,46 +155,38 @@ const importStream = (rs, config, onProgress) => (
           // eslint-disable-next-line prefer-const
           tailBuffer = chunkingResult[1];
 
-          batchSizeDocuments = recordBuffers.length;
-          documentsCompleted += recordBuffers.length;
-          if (config.command === 'convert') {
-            const mappedRecords = flattenDeep(await executeParallel('convertChunk', recordBuffers.map((r) => r), config));
-            mappedRecords.forEach((rec) => statCounter.add(rec));
-          } else if (config.command === 'stats') {
-            const scs = flattenDeep(await executeParallel('statChunk', recordBuffers.map((r) => r), config));
-            scs.forEach((sc) => {
-              statCounter.mergeJSON(sc);
-            });
-          } else if (config.command === 'fingerprint') {
-            const mappedRecords = flattenDeep(await executeParallel('convertChunk', recordBuffers.map((r) => r), config));
-            const fingerprintedRecords = await cpMap(
-              mappedRecords,
-              async (rec) => {
-                const keys = Object.keys(rec).sort();
-                const values = keys.map((k) => rec[k]);
-                const fpValues = flattenDeep(await executeParallel('fingerprint', values, config));
-                const res = {};
-                keys.forEach((key, idx) => {
-                  res[key] = fpValues[idx];
-                });
-                return res;
-              },
-            );
-            fingerprintedRecords.forEach((rec) => fpStatCounter.add(rec));
-            debug(`Merged ${mappedRecords.length} record fingerprints in $
-                  {(new Date()).getTime() - t0} ms`);
-          }
+          const result = flattenDeep(
+            (await executeParallel('convertChunk', recordBuffers, {
+              inputMediaType: config.inputMediaType,
+              outputMediaType: config.outputMediaType,
+              header: config.header,
+            })).map(
+              (txtOutput, idx) => ((recordsCompleted === 0) && (idx === 0)
+                ? txtOutput
+                : txtOutput.substr(txtOutput.indexOf('\n') + 1)),
+            ),
+          ).join('');
 
-          if (typeof (onProgress) === 'function') {
-            onProgress({
-              records: statCounter.recordsTotal,
-              bytes: bytesCompleted,
-              elapsedSec: (new Date()).getTime() / 1000.0 - startTsSec,
+          recordsCompleted += recordBuffers.length;
+          const bytes = recordBuffers.reduce((a, o) => a + o.length, 0);
+          bytesCompleted += bytes;
+          const batchEndTsSec = ((new Date()).getTime() / 1000.0);
+
+          // startTsSec = endTsSec;
+          if ((typeof (onProgress) === 'function') && (recordBuffers.length > 0)) {
+            await onProgress({
+              records: recordBuffers.length,
+              recordsCompleted,
+              bytes,
+              bytesCompleted,
+              elapsedSec: batchEndTsSec - startTsSec,
+              sec: batchEndTsSec - batchStartTsSec,
+              data: result,
             });
           }
+          batchStartTsSec = batchEndTsSec;
 
           // Finalize
-          batchSizeBytes = 0;
           return tailBuffer;
         };
         const onEnd = async () => {
@@ -208,25 +199,20 @@ const importStream = (rs, config, onProgress) => (
             }
             if (!isProcessingCompleted) {
               isProcessingCompleted = true;
-              resolve(config.fingerprint ? fpStatCounter : statCounter);
+              // resolve(statCounter);
             }
           } catch (e) {
-            if (typeof onProgress === 'function') {
-              onProgress({
-                records: statCounter.recordsTotal,
-                bytes: bytesCompleted,
-                elapsedSec: (new Date()).getTime() / 1000.0 - startTsSec,
-              });
+            if (typeof onError === 'function') {
+              onError(e);
+              error(`${e.message}\n${e.stack}\n`);
             }
-            // await refreshDbStats();
             error('ERROR: Parallel execution fail:', e);
-            reject(e);
           }
+          resolve();
         };
         const onData = async (data) => {
           rs.pause();
-          bytesCompleted += data.byteLength;
-          batchSizeBytes += data.byteLength;
+          // bytesCompleted += data.byteLength;
           poolLen += data.byteLength;
           pool.push(data);
           if (poolLen >= maxPoolSize) {
@@ -243,8 +229,9 @@ const importStream = (rs, config, onProgress) => (
               poolLen = 0;
             }
           }
-          if ((config.limit && (config.limit > 0)) && (documentsCompleted >= config.limit)) {
-            onEnd().then(() => rs.end());
+          if ((config.limit && (config.limit > 0)) && (recordsCompleted >= config.limit)) {
+            await onEnd();
+            // .then(() => rs.end());
           } else {
             rs.resume();
           }
@@ -272,5 +259,5 @@ const importStream = (rs, config, onProgress) => (
 );
 
 module.exports = {
-  importStream,
+  convertStream,
 };

@@ -7,7 +7,7 @@ const {
 
 class NormalizeMediaTypeAndSave extends argparse.Action {
   call(parser, namespace, value /* option_string = undefined */) {
-    namespace[this.dest] = value.replace(/^([^/]\/)?/uig, 'application/');
+    namespace[this.dest] = value.replace(/^([^/]*\/)?/uig, 'application/');
   }
 }
 
@@ -84,6 +84,26 @@ const parseArgs = (args) => {
       action: NormalizeMediaTypeAndSave,
     },
   );
+  parser.add_argument(
+    '-s',
+    '-num-samples',
+    {
+      help: 'Num of field samples',
+      type: 'int',
+      dest: 'numSamples',
+      default: 10,
+    },
+  );
+  parser.add_argument(
+    '-b',
+    '-batch-size',
+    {
+      help: 'Worker input batch max size in bytes',
+      type: 'int',
+      dest: 'batchSize',
+      default: 4 * 1024 * 1024,
+    },
+  );
 
   const subParsers = parser.add_subparsers({
     title: 'Command',
@@ -92,23 +112,14 @@ const parseArgs = (args) => {
   });
 
   // Stats
-  const statsParser = subParsers.add_parser(
-    'stats',
+  const describeSubParser = subParsers.add_parser(
+    'describe',
     {
       help: 'Generate record fields stat report',
     },
   );
 
-  statsParser.add_argument(
-    '-P',
-    '--fingerprint',
-    {
-      help: 'Output fingerprint stats',
-      action: 'store_true',
-    },
-  );
-
-  statsParser.add_argument(
+  describeSubParser.add_argument(
     '-o',
     '--output',
     {
@@ -116,7 +127,34 @@ const parseArgs = (args) => {
       type: 'str',
     },
   );
-  statsParser.add_argument(
+
+  // describeSubParser.add_argument(
+  //   '-P',
+  //   '--fingerprint',
+  //   {
+  //     help: 'Output fingerprint stats',
+  //     action: 'store_true',
+  //   },
+  // );
+
+  // Convert
+  const convertSubParser = subParsers.add_parser(
+    'convert',
+    {
+      help: 'Generate record fields stat report',
+    },
+  );
+
+  convertSubParser.add_argument(
+    '-o',
+    '--output',
+    {
+      help: 'Output path, don\'t specify when using stdout as output or expecting automatic creation of output folder (e.g. in case of detailed stats or slicing)',
+      type: 'str',
+    },
+  );
+
+  convertSubParser.add_argument(
     '-O',
     '--output-type',
     {
@@ -127,6 +165,7 @@ const parseArgs = (args) => {
       action: NormalizeMediaTypeAndSave,
     },
   );
+
   return parser.parse_args(args);
 };
 

@@ -57,10 +57,19 @@ const prettyBytes = (num, decimals = 2) => {
   return `${(neg ? '-' : '') + num} ${units[exponent]}`;
 };
 
+const humanizeSeconds = (seconds = 0) => {
+  seconds = seconds || 0;
+  const d = new Date(seconds * 1000);
+  const minSec = d.toISOString().split('.')[0].split(':').slice(-2);
+  const hours = Math.floor(seconds / (60 * 60));
+  return (hours > 0 ? [hours, ...minSec] : minSec).join(':');
+};
+
 module.exports = {
   escapeUnprintable,
   lengthInBytes,
   padLeft,
   padRight,
   prettyBytes,
+  humanizeSeconds,
 };
