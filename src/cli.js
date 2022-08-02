@@ -1,14 +1,26 @@
 const argparse = require('argparse');
+const {
+  flattenDeep,
+  uniq,
+} = require('./utils/arrays');
 const formats = require('./formats');
 const {
   DEFAULT_JOBS,
   VERSION,
   DEFAULT_BATCH_SIZE,
+  TSV_MEDIA_TYPE,
 } = require('./constants');
 
 class NormalizeMediaTypeAndSave extends argparse.Action {
   call(parser, namespace, value /* option_string = undefined */) {
-    namespace[this.dest] = value.replace(/^([^/]*\/)?/uig, 'application/');
+    if (value.toLowerCase() === 'tsv') {
+      value = TSV_MEDIA_TYPE;
+    }
+    if (value.split('/').length === 1) {
+      namespace[this.dest] = `${value === 'tab-separated-values' ? 'text' : 'application'}/${value}`;
+    } else {
+      namespace[this.dest] = value;
+    }
   }
 }
 
@@ -29,6 +41,10 @@ class NormalizeMediaTypeAndSave extends argparse.Action {
  */
 const parseArgs = (args) => {
   const formatChoices = Object.keys(formats).sort();
+  const exportFormatChoices = uniq(flattenDeep(
+    Object.keys(formats).map((fk) => Object.keys(formats[fk].export || {})),
+  ));
+
   const parser = new argparse.ArgumentParser({
     description: 'Process bibliographic records',
   });
@@ -161,12 +177,12 @@ const parseArgs = (args) => {
     {
       help: 'Output format IANA (or domestic) Media type that may be followed by format dialect definition',
       type: 'str',
-      default: formatChoices,
+      choices: exportFormatChoices,
       dest: 'outputMediaType',
+      default: TSV_MEDIA_TYPE,
       action: NormalizeMediaTypeAndSave,
     },
   );
-
   return parser.parse_args(args);
 };
 

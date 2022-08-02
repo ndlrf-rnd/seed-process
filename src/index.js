@@ -228,7 +228,6 @@ initWorker({
   convertChunk,
   describeFieldFile,
 }, config.jobs);
-
 if (cluster.isMaster && (require.main === module)) {
   // info(JSON.stringify(config, null, 2))
   run(config).catch((e) => {

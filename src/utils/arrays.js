@@ -1,6 +1,7 @@
 const flattenDeep = require('lodash.flattendeep');
 const sortBy = require('lodash.sortby');
 const range = require('lodash.range');
+const uniq = require('lodash.uniq');
 
 const forceArray = (x) => (Array.isArray(x) ? x : [x].filter((v) => !!v));
 
@@ -23,4 +24,5 @@ module.exports = {
   flattenDeep,
   sortBy,
   range,
+  uniq,
 };
